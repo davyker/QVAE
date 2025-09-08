@@ -1,0 +1,121 @@
+# QVAE Configuration File
+# All configurable parameters for training and data processing
+
+# Data & Preprocessing
+data:
+  dataset_path: "data"
+  cache_dir: "data/precomputed" 
+  input_sample_rate: 32000  # QVIM requirement
+  input_duration: 10.0  # ditto
+  input_audio_length: 320000  # samples (10s at 32000Hz)
+  target_sample_rate: 22050  # for decoder output
+  target_audio_length: 59049  # samples (~2.68s at 22050Hz) - required for the decoder input; SampleCNN takes 59049 samples, so the transposed SampleCNN will output 59049 samples
+  output_sample_rate: 44100  # final upsampling target
+  precompute_batch_size: 32 
+  split_random_seed: 42  # for reproducible train/val splits - keep at 42
+  train_sound_ratio: 0.9  # 90% of sounds for training
+  train_imitation_ratio: 0.9  # 90% of imitations within train sounds
+
+# STFT/Mel Parameters for Loss Functions
+target_spectrograms:
+  stft:
+    window_sizes: [512, 1024, 2048, 4096]
+    hop_lengths: [128, 256, 512, 1024]  # n_fft/4 for 75% overlap
+    win_lengths: [512, 1024, 2048, 4096]  # equals n_fft
+  mel:
+    n_fft: [1024, 2048]
+    hop_lengths: [256, 512] 
+    n_mels: 80
+    f_min: 0
+    f_max: 11025  # Nyquist for target_sample_rate (22050Hz)
+
+# Model Architecture  
+model:
+  latent_dim: 1 # mu_head and logvar_head (MLPs) both output this dim
+  feature_space: 'final'  # "final" for 960-dim final projection, or layer number like "16", "15", "14"
+  # --!!! If this is not "final", then you need fine-tuning enabled so that the encoder will receive input rather than precomputed features being used
+  # you can write [] if you don't want to fine-tune
+  from_scratch: false  # Set to true to train from random initialisation (no pretrained checkpoint)
+  encoder_checkpoint: "qvim-mn-checkpoints/davy.ckpt"
+  encoder_name: "mn10_as"
+  deterministic_sampling: false  # Set to true for debugging (disables VAE stochastic sampling)
+  
+  # Encoder Fine-tuning Configuration
+  encoder_fine_tuning:
+    enabled: true  # Set to true to enable encoder fine-tuning
+    unfreeze_layers: [11, 12, 13, 14, 15, 16]  # Choose MobileNetV3 features layers (0-16)
+    learning_rate: 1.8e-5  # Lower learning rate for encoder layers
+
+# Decoder Architecture
+decoder:
+  type: "original-plus"
+  dropout: 0.05
+  weight_init_std: 0.005  # Standard deviation for weight initialisation - only applied if below is 'fixed'
+  # Alternative: use "kaiming_scaled" with kaiming_scale_factor for layer-aware initialisation
+  weight_init_method: "kaiming_scaled"  # "fixed" or "kaiming_scaled"
+  kaiming_scale_factor: 8  # Only used if weight_init_method is "kaiming_scaled"
+  
+  use_he_uniform_init: true  # If true, overrides other settings and uses kaiming uniform with the below settings
+  he_uniform_init_mode: "fan_in"  # "fan_in" (recommended) or "fan_out"
+  he_uniform_init_nonlinearity: "leaky_relu"  # "relu", "leaky_relu", "tanh", "linear"
+
+# Loss Function Weights
+loss:
+  alpha_spectral: 1.0
+  alpha_mel: 1.5
+  alpha_waveform: 1.0
+  beta_kl: 0.0 # This will be overridden by beta_kl_schedule if enabled
+  alpha_adversarial: 0.1  # optional future enhancement - this has not been implemented yet
+  use_silence_masking: false  # Mask silent regions in loss computation
+  silence_threshold: 1.0e-4  # Energy threshold for silence detection
+
+# Training Configuration
+training:
+  batch_size: 32
+  num_epochs: 300
+  learning_rate: 8.0e-4 ######## ~8.0e-5 seems good for proper runs ####### Consider higher for overfitting tests eg. 1.0e-3 -- 2.0e-4 gave the first good results for overfitting tests, but lower may be ok too
+  adam_beta1: 0.95 # Was 0.8 since the start until trying to prevent mode collapse
+  adam_beta2: 0.999
+  grad_clip_threshold: 2
+  num_workers: 8
+  random_seed: 422  # Random seed for reproducibility (affects sample selection, weight init, etc.)
+  early_stopping:
+    patience: 100
+    min_delta: 0.007
+    monitor: "val_interpolation_loss/dataloader_idx_0"  # Fixed metric name with dataloader index
+  scheduler:
+    type: "cosine"  # cosine annealing
+    eta_min: 1.0e-6  # minimum LR at end of cosine annealing
+    warmup_epochs: 50
+  
+  # Beta KL Schedule
+  beta_kl_schedule:
+    type: "linear"  # Options: "fixed", "linear", "cyclical" - if "fixed" everything below will be ignored and beta_kl (above) used
+    # Cyclical schedule parameters
+    min: 0.0      
+    max: 5.0e-5          
+    cycle_length: 4000  
+    proportion: 0.6   # Proportion of cycle for annealing (0.5 = first half increases, second half holds)
+    # Linear schedule parameters (if type="linear")
+    initial: 0   # During warmup
+    target: 1.0e-4    # Final value after rampup
+    rampup_fraction: 0.7  # Fraction of total epochs for rampup after warmup
+
+# Logging & Checkpointing
+logging:
+  wandb_project: "qvae"
+  wandb_entity: null 
+  run_dir: "runs"
+  log_frequency: 1  # steps
+  save_frequency: 1000  # steps
+  audio_output_dir: "generated_audio"  # Directory for saving generated audio samples
+  audio_samples_per_val: 3  # Number of samples to generate per validation set AND training set (3 dataloaders total)
+  audio_generation_frequency: 1  # Generate audio every N epochs (for both train and val)
+  
+# Diagnostics
+diagnostics:
+  enabled: true
+  frequency: 1  # Will be overridden to 1 for overfit mode
+
+# Hardware
+device: "cuda"  # or "cpu"
