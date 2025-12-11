@@ -20,7 +20,7 @@ QVAE transforms human vocal imitations (e.g., "whoosh" sounds, beatboxing) into 
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/QVAE.git
+git clone https://github.com/davyker/QVAE.git
 cd QVAE
 
 # Install dependencies
@@ -146,4 +146,5 @@ QVAE/
 ## Acknowledgements
 
 - Queen Mary University of London, School of Electronic Engineering and Computer Science
+
 - QVIM baseline implementation from AES AIMLA Challenge (https://github.com/qvim-aes/qvim-baseline/)
